@@ -1,6 +1,6 @@
-### JSON Web Token Authentication Example 
+## JSON Web Token Authentication Example 
 
-**Uses:**
+#### Uses:
 
 * [dgrijalva/jwt-go](https://github.com/dgrijalva/jwt-go)
 
@@ -11,8 +11,9 @@
 Get the two required packages above
 
 ```bash
-$ go get github.com/dgrijalva/jwt-go
-$ go get github.com/gorilla/context
+go get github.com/dgrijalva/jwt-go
+
+go get github.com/gorilla/context
 ```
 
 Run it and it will be on **port 8080**
@@ -22,7 +23,9 @@ go run jwt.go
 ```
 
 **/** home page 
+
 **/setToken** Sets the token 
+
 **/profile** Protected page only accessible by users with valid tokens
 
 
