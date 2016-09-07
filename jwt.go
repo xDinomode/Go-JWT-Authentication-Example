@@ -1,28 +1,34 @@
 package main
 
-import "github.com/dgrijalva/jwt-go"
-import "github.com/gorilla/context"
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"time"
 
-import "net/http"
+	"github.com/dgrijalva/jwt-go"
+)
 
-import "fmt"
-import "strings"
-import "time"
+type Key int
 
-type MyCustomClaims struct {
+const MyKey Key = 0
+
+// JWT schema of the data it will store
+type Claims struct {
 	Username string `json:"username"`
 	jwt.StandardClaims
 }
 
+// create a JWT and put in the clients cookie
 func setToken(res http.ResponseWriter, req *http.Request) {
-	expireToken := time.Now().Add(time.Hour * 24).Unix()
-	expireCookie := time.Now().Add(time.Hour * 24)
+	expireToken := time.Now().Add(time.Hour * 1).Unix()
+	expireCookie := time.Now().Add(time.Hour * 1)
 
-	claims := MyCustomClaims{
+	claims := Claims{
 		"myusername",
 		jwt.StandardClaims{
 			ExpiresAt: expireToken,
-			Issuer:    "example.com",
+			Issuer:    "localhost:9000",
 		},
 	}
 
@@ -33,50 +39,60 @@ func setToken(res http.ResponseWriter, req *http.Request) {
 	cookie := http.Cookie{Name: "Auth", Value: signedToken, Expires: expireCookie, HttpOnly: true}
 	http.SetCookie(res, &cookie)
 
-	http.Redirect(res, req, "/profile", 301)
+	http.Redirect(res, req, "/profile", 307)
 }
 
-func validate(protectedPage http.HandlerFunc) http.HandlerFunc {
+// middleware to protect private pages
+func validate(page http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-
 		cookie, err := req.Cookie("Auth")
 		if err != nil {
 			http.NotFound(res, req)
 			return
 		}
 
-		splitCookie := strings.Split(cookie.String(), "Auth=")
-
-		token, err := jwt.ParseWithClaims(splitCookie[1], &MyCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(cookie.Value, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("Unexpected signing method %v", token.Header["alg"])
+				return nil, fmt.Errorf("Unexpected signing method")
 			}
 			return []byte("secret"), nil
 		})
-
-		if claims, ok := token.Claims.(*MyCustomClaims); ok && token.Valid {
-			context.Set(req, "Claims", claims)
-		} else {
+		if err != nil {
 			http.NotFound(res, req)
 			return
 		}
 
-		protectedPage(res, req)
+		if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+			ctx := context.WithValue(req.Context(), MyKey, *claims)
+			page(res, req.WithContext(ctx))
+		} else {
+			http.NotFound(res, req)
+			return
+		}
 	})
 }
 
-func profile(res http.ResponseWriter, req *http.Request) {
-	claims := context.Get(req, "Claims").(*MyCustomClaims)
-	res.Write([]byte(claims.Username))
-	context.Clear(req)
+// only viewable if the client has a valid token
+func protectedProfile(res http.ResponseWriter, req *http.Request) {
+	claims, ok := req.Context().Value(MyKey).(Claims)
+	if !ok {
+		http.NotFound(res, req)
+		return
+	}
+
+	fmt.Fprintf(res, "Hello %s", claims.Username)
 }
 
-func homePage(res http.ResponseWriter, req *http.Request) {
-	res.Write([]byte("Home Page"))
+// deletes the cookie
+func logout(res http.ResponseWriter, req *http.Request) {
+	deleteCookie := http.Cookie{Name: "Auth", Value: "none", Expires: time.Now()}
+	http.SetCookie(res, &deleteCookie)
+	return
 }
+
 func main() {
-	http.HandleFunc("/profile", validate(profile))
-	http.HandleFunc("/setToken", setToken)
-	http.HandleFunc("/", homePage)
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/settoken", setToken)
+	http.HandleFunc("/profile", validate(protectedProfile))
+	http.HandleFunc("/logout", validate(logout))
+	http.ListenAndServe(":9000", nil)
 }
